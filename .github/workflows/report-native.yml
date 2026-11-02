@@ -1,0 +1,35 @@
+name: Report native builds to GitLab
+on:
+  workflow_run:
+    workflows: ['Native distributions to GitLab']
+    types: [requested, in_progress, completed]
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/report-native.yml'
+      - 'monitor/**'
+      - 'monitor-request.json'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: native-build-monitor
+  cancel-in-progress: false
+jobs:
+  report:
+    if: github.repository == 'xander-cage12/yandex-tracker-report-build' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Mirror statuses and private diagnostics to GitLab
+        run: python3 monitor/report.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
+          GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
