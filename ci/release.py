@@ -8,13 +8,14 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import traceback
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 API = "https://gitlab.3-bs.synology.me/api/v4/projects/21"
-SOURCE = "53bdfcc91683d2e51be3cba3d9c318bf301226ab"
+SOURCE = "a556df07f7b7c7765970eed8245e278a2696f9f8"
 VERSION, BUILD = "1.36.1", "54"
 TARGETS = ("windows-x64", "macos-x64", "macos-arm64")
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,10 @@ SRC = PRIVATE / "source"
 LOG = PRIVATE / "build.log"
 RUN = os.environ.get("GITHUB_RUN_ID", "0") + "-" + os.environ.get("GITHUB_RUN_ATTEMPT", "0")
 PACKAGE = "/packages/generic/yandex-tracker-report/" + VERSION + "-" + RUN
+CURRENT_STAGE = "initialization"
+
+class ReleaseError(RuntimeError):
+    pass
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -33,21 +38,30 @@ OPENER = urllib.request.build_opener(NoRedirect)
 def request(path, token_name, method="GET", data=None, optional=False):
     token = os.environ.get(token_name, "")
     if not token:
-        raise RuntimeError("Required GitLab secret is not configured")
+        raise ReleaseError("Required GitLab secret is not configured")
     headers = {"PRIVATE-TOKEN": token}
     if isinstance(data, dict):
         data = json.dumps(data).encode()
         headers["Content-Type"] = "application/json"
     elif data is not None:
         headers["Content-Type"] = "application/octet-stream"
-    req = urllib.request.Request(API + path, data=data, headers=headers, method=method)
-    try:
-        with OPENER.open(req, timeout=180) as response:
-            return response.read()
-    except urllib.error.HTTPError as error:
-        if optional and error.code == 404:
-            return None
-        raise RuntimeError("GitLab HTTP status " + str(error.code)) from None
+    attempts = 3 if method in ("GET", "PUT") else 1
+    for attempt in range(attempts):
+        req = urllib.request.Request(API + path, data=data, headers=headers, method=method)
+        try:
+            with OPENER.open(req, timeout=180) as response:
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if optional and error.code == 404:
+                return None
+            retry = error.code in (429, 500, 502, 503, 504)
+            if not retry or attempt + 1 == attempts:
+                raise ReleaseError("GitLab HTTP status " + str(error.code) + " during " + method) from None
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            if attempt + 1 == attempts:
+                raise ReleaseError("GitLab network request failed: " + type(error).__name__) from None
+        print("Transient GitLab request failure; retry " + str(attempt + 2) + "/" + str(attempts), flush=True)
+        time.sleep(2 ** attempt)
 
 def read_json(path, token="GITLAB_READ_TOKEN", optional=False):
     raw = request(path, token, optional=optional)
@@ -60,27 +74,34 @@ def filename(target):
 def upload(name, data):
     request(PACKAGE + "/" + name, "GITLAB_PUBLISH_TOKEN", "PUT", data)
 
-def run(args, cwd=None, extra_env=None, timeout=900):
+def run(args, cwd=None, extra_env=None, timeout=900, stage="command"):
+    global CURRENT_STAGE
+    CURRENT_STAGE = stage
+    print("Stage: " + stage, flush=True)
     env = {k: v for k, v in os.environ.items() if not k.startswith("GITLAB_")}
     env.update(extra_env or {})
-    result = subprocess.run([str(x) for x in args], cwd=cwd, env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
-    PRIVATE.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run([str(x) for x in args], cwd=cwd, env=env,
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        with LOG.open("ab") as stream:
+            stream.write(error.output or b"")
+        raise ReleaseError(stage + " timed out") from None
     with LOG.open("ab") as stream:
         stream.write(result.stdout)
     if result.returncode:
-        raise RuntimeError("A private build/test command failed; see GitLab diagnostics")
+        raise ReleaseError(stage + " failed with exit code " + str(result.returncode) + "; see private diagnostics")
     return result.stdout
 
 def preflight():
     if read_json("/releases/v" + VERSION, optional=True) is not None:
-        raise RuntimeError("Release already exists; refusing to overwrite")
+        raise ReleaseError("Release already exists; refusing to overwrite")
     tag = read_json("/repository/tags/v" + VERSION, optional=True)
     if tag is not None and tag["commit"]["id"] != SOURCE:
-        raise RuntimeError("Existing release tag points to a different commit")
+        raise ReleaseError("Existing release tag points to a different commit")
     pipelines = read_json("/pipelines?sha=" + SOURCE + "&ref=main&per_page=1")
     if not pipelines or pipelines[0]["status"] != "success":
-        raise RuntimeError("The latest GitLab pipeline for the pinned main commit must succeed first")
+        raise ReleaseError("The latest GitLab pipeline for the pinned main commit must succeed first")
     read_json("", "GITLAB_PUBLISH_TOKEN")
     print("Preflight passed; release does not exist and pinned GitLab CI succeeded")
 
@@ -90,11 +111,11 @@ def fetch():
     destination.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as stream:
         if any(not (item.isfile() or item.isdir()) for item in stream.getmembers()):
-            raise RuntimeError("Unexpected archive member type")
+            raise ReleaseError("Unexpected archive member type")
         stream.extractall(destination, filter="data")
     folders = list(destination.iterdir())
     if len(folders) != 1 or not folders[0].is_dir() or SRC.exists():
-        raise RuntimeError("Unexpected source archive layout")
+        raise ReleaseError("Unexpected source archive layout")
     folders[0].rename(SRC)
     values = {}
     for node in ast.parse((SRC / "tracker_core.py").read_text(encoding="utf-8")).body:
@@ -103,22 +124,22 @@ def fetch():
                 if isinstance(name, ast.Name) and name.id in ("APP_VERSION", "APP_BUILD"):
                     values[name.id] = ast.literal_eval(node.value)
     if values != {"APP_VERSION": VERSION, "APP_BUILD": BUILD}:
-        raise RuntimeError("Source version/build does not match release configuration")
+        raise ReleaseError("Source version/build does not match release configuration")
     print("Pinned sources fetched privately and version checked")
 
 def build(target):
     expected = "windows-x64" if sys.platform == "win32" else "macos-" + ("arm64" if platform.machine() == "arm64" else "x64")
     if target != expected or sys.platform not in ("win32", "darwin"):
-        raise RuntimeError("Runner platform does not match target")
-    run([sys.executable, "-m", "pip", "install", "-r", SRC / "requirements.txt", "pyinstaller==6.22.3"])
-    run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"], SRC, {"REQUIRE_GUI": "1"})
+        raise ReleaseError("Runner platform does not match target")
+    run([sys.executable, "-m", "pip", "install", "-r", SRC / "requirements.txt", "pyinstaller==6.22.3"], stage="dependencies")
+    run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"], SRC, {"REQUIRE_GUI": "1"}, stage="source-tests")
     output = PRIVATE / "frozen"
     common = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--noupx",
               "--distpath", output, "--workpath", PRIVATE / "work", "--specpath", PRIVATE,
               "--paths", SRC, "--runtime-hook", ROOT / "ci/portable_hook.py"]
-    run(common + ["--onefile", "--console", "--name", "YandexTrackerReportCLI", SRC / "tracker_report.py"], SRC)
+    run(common + ["--onefile", "--console", "--name", "YandexTrackerReportCLI", SRC / "tracker_report.py"], SRC, stage="package-cli")
     mode = "--onefile" if sys.platform == "win32" else "--onedir"
-    run(common + [mode, "--windowed", "--name", "YandexTrackerReport", ROOT / "ci/gui_entry.py"], SRC)
+    run(common + [mode, "--windowed", "--name", "YandexTrackerReport", ROOT / "ci/gui_entry.py"], SRC, stage="package-gui")
     stage = PRIVATE / "YandexTrackerReport"
     stage.mkdir()
     if sys.platform == "win32":
@@ -133,17 +154,17 @@ def build(target):
         shutil.copy2(output / "YandexTrackerReportCLI", stage / "YandexTrackerReportCLI")
         cli = stage / "YandexTrackerReportCLI"
         gui = stage / "YandexTrackerReport.app/Contents/MacOS/YandexTrackerReport"
-    if VERSION.encode() not in run([cli, "--version"], stage, timeout=120):
-        raise RuntimeError("Frozen CLI version check failed")
-    run([cli, "--help"], stage, timeout=120)
-    run([gui], stage, {"YTR_BUILD_SMOKE_TEST": "1"}, timeout=120)
+    if VERSION.encode() not in run([cli, "--version"], stage, timeout=120, stage="smoke-cli-version"):
+        raise ReleaseError("Frozen CLI version check failed")
+    run([cli, "--help"], stage, timeout=120, stage="smoke-cli-help")
+    run([gui], stage, {"YTR_BUILD_SMOKE_TEST": "1"}, timeout=120, stage="smoke-gui")
     for folder in ("config", "logs"):
         shutil.rmtree(stage / folder, ignore_errors=True)
         (stage / folder).mkdir()
     info = {"version": VERSION, "build": BUILD, "source_sha": SOURCE, "target": target,
             "workflow_sha": os.environ.get("GITHUB_SHA"), "run": RUN,
             "python": sys.version, "os": platform.platform(),
-            "dependencies": run([sys.executable, "-m", "pip", "freeze"]).decode("utf-8", errors="replace"),
+            "dependencies": run([sys.executable, "-m", "pip", "freeze"], stage="dependency-manifest").decode("utf-8", errors="replace"),
             "verification": "Source unittest, frozen CLI --version/--help, frozen GUI startup and exit",
             "signing": "No Windows publisher signature; macOS ad-hoc only, not notarized"}
     (stage / "BUILD-INFO.json").write_text(json.dumps(info, indent=2), encoding="utf-8")
@@ -182,10 +203,10 @@ def release():
     for target in TARGETS:
         info = read_json(PACKAGE + "/" + target + ".json")
         if (info["source_sha"], info["version"], info["build"], info["target"], info["run"], info["file"]) != (SOURCE, VERSION, BUILD, target, RUN, filename(target)):
-            raise RuntimeError("Build manifest mismatch")
+            raise ReleaseError("Build manifest mismatch")
         data = request(PACKAGE + "/" + info["file"], "GITLAB_READ_TOKEN")
         if len(data) != info["size"] or hashlib.sha256(data).hexdigest() != info["sha256"]:
-            raise RuntimeError("Uploaded binary checksum mismatch")
+            raise ReleaseError("Uploaded binary checksum mismatch")
         manifests.append(info)
     sums = "".join(item["sha256"] + "  " + item["file"] + "\n" for item in manifests)
     upload("SHA256SUMS", sums.encode())
@@ -209,18 +230,20 @@ if __name__ == "__main__":
     PRIVATE.mkdir(parents=True, exist_ok=True)
     try:
         mode = sys.argv[1]
+        CURRENT_STAGE = mode
         target = os.environ.get("TARGET", "")
         if mode in ("build", "upload", "diagnostics") and target not in TARGETS:
-            raise RuntimeError("Invalid build target")
+            raise ReleaseError("Invalid build target")
         if mode == "preflight": preflight()
         elif mode == "fetch": fetch()
         elif mode == "build": build(target)
         elif mode == "upload": upload_build(target)
         elif mode == "diagnostics": diagnostics(target)
         elif mode == "release": release()
-        else: raise RuntimeError("Unknown operation")
+        else: raise ReleaseError("Unknown operation")
     except Exception as error:
         with LOG.open("a", encoding="utf-8") as stream:
             traceback.print_exc(file=stream)
-        print("Operation failed (" + type(error).__name__ + "). Private details were not printed.", file=sys.stderr)
+        detail = str(error) if isinstance(error, ReleaseError) else type(error).__name__
+        print("Operation failed at " + CURRENT_STAGE + ": " + detail + ". Private logs remain in GitLab diagnostics.", file=sys.stderr)
         sys.exit(1)
