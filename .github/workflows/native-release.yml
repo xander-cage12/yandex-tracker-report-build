@@ -1,6 +1,12 @@
 name: Native distributions to GitLab
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/native-release.yml'
+      - 'ci/**'
+      - 'release-request.json'
 permissions:
   contents: read
 concurrency:
