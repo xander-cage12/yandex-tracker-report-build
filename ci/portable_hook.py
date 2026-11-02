@@ -1,6 +1,13 @@
 import os
 import sys
 from pathlib import Path
+
+if sys.platform == "win32":
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="strict")
+
 import tracker_core as core
 
 base = Path(sys.executable).resolve().parent
