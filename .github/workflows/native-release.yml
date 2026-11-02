@@ -3,10 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/native-release.yml'
-      - 'ci/**'
-      - 'release-request.json'
+    paths: ['.github/workflows/native-release.yml', 'ci/**', 'release-request.json']
 permissions:
   contents: read
 concurrency:
@@ -36,15 +33,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-2025
-            target: windows-x64
-            arch: x64
-          - os: macos-15-intel
-            target: macos-x64
-            arch: x64
-          - os: macos-15
-            target: macos-arm64
-            arch: arm64
+          - {os: windows-2025, target: windows-x64, arch: x64}
+          - {os: macos-15-intel, target: macos-x64, arch: x64}
+          - {os: macos-15, target: macos-arm64, arch: arm64}
     env:
       TARGET: ${{ matrix.target }}
       PYTHONUTF8: '1'
@@ -61,8 +52,17 @@ jobs:
         run: python ci/release_1_36_2.py fetch
         env:
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
-      - name: Build and test privately
-        id: compile
+      - name: Build and test privately on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
+          & powershell.exe -NoProfile -NonInteractive -Command "Get-Command Get-FileHash,Get-AuthenticodeSignature -ErrorAction Stop | Out-Null"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python ci/release_1_36_2.py build
+          exit $LASTEXITCODE
+      - name: Build and test privately on macOS
+        if: runner.os != 'Windows'
         run: python ci/release_1_36_2.py build
       - name: Upload tested binary to GitLab
         run: python ci/release_1_36_2.py upload
