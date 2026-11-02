@@ -1,19 +1,15 @@
-# Native release build
+# Native release 1.36.2, build 55
 
-Application source is not stored in this public repository. Sources are fetched from pinned GitLab commit a556df07f7b7c7765970eed8245e278a2696f9f8 (version 1.36.1, build 54), including the Windows archive-path fix. GitLab pipeline 406 for this commit succeeded.
+Entry point: ci/release_1_36_2.py, reusing ci/release.py as the base packager. It explicitly sets application version 1.36.2, build 55, source e19b7355614e86e02d908aabefb33bc57bafc40f and package version prefix 1.36.2. Release tag is v1.36.2, not v1.36.1-build55. Existing releases are never overwritten.
 
-Required repository Actions secrets: GITLAB_READ_TOKEN (project read_api) and GITLAB_PUBLISH_TOKEN (project api). Never commit tokens. Only xander-cage12 can run this workflow from main.
+Only xander-cage12 on main can pass the native workflow guard. Standard Windows x64, macOS Intel and Apple Silicon public-repository runners are used. Existing GITLAB_READ_TOKEN (read_api) and GITLAB_PUBLISH_TOKEN (api) remain repository secrets; the monitor uses an ephemeral GITHUB_TOKEN with actions:read. No new PAT, source mirror, public artifact or dependency cache is created.
 
-Pushes to main affecting .github/workflows/native-release.yml, ci/** or release-request.json start a build automatically. Documentation-only pushes do not. Manual workflow_dispatch remains available. Changing release-request.json reruns the same pinned source/version, not another revision.
+Preflight waits at most 30 minutes for successful GitLab CI on the pinned SHA; failed/canceled/skipped/manual CI stops release. Preflight/publish jobs time out at 35 minutes; native jobs at 45 minutes. Controlled push and workflow_dispatch triggers remain. GET/PUT retries, safe stage/HTTP errors and private logs are inherited from the base packager. Release POST is not retried.
 
-Only standard public-repository runners are used: windows-2025, macos-15-intel, macos-15. No GitHub artifacts or dependency caches are uploaded. Private source and detailed build logs remain on ephemeral runners. Diagnostics after build or upload failures are sent to GitLab when sources were fetched successfully. Public logs show controlled stage names and safe errors, not captured subprocess output. Package access follows GitLab project permissions.
+All source tests and frozen CLI --version/--help plus GUI startup/exit smoke tests remain enabled. Native Windows archives exclude broad legacy sign_scripts/unblock_files helpers, include prepare_windows.ps1 and test it with -WhatIf. macOS archives include executable prepare_macos.command, check its syntax and existing app/CLI signature integrity. Both include BUILDING.md, TRUST_AND_SECURITY.md and generated BINARY_SHA256SUMS. Actual unblocking is not executed in CI.
 
-GET/PUT requests have at most three attempts for network errors or HTTP 429/500/502/503/504, with bounded backoff. Other HTTP errors fail immediately. POST release creation is not retried. Retries do not prove the macOS Intel upload issue was transient; its actual error must be checked if it recurs.
+The driver verifies helper presence in final archives, then verifies uploaded archive hashes and manifest source/version/build/run/tag before publication. Release assets contain three archives, SHA256SUMS and BUILD-MANIFEST.json. Partial packages may remain after failures; no partial release is advertised as complete.
 
-The latest GitLab CI for the pinned main commit must succeed. All source tests and frozen CLI --version/--help and GUI startup/exit checks run on each target. All three builds must succeed and uploaded SHA-256 values must verify before publishing. Existing releases and mismatching tags are not overwritten. Partial packages may remain after a failed run. The separate monitor mirrors statuses and available diagnostic tails into confidential GitLab issues.
+monitor/report.py reads diagnostics under both 1.36.2 and historical 1.36.1 package prefixes, preserving access to prior failures. Its event-driven reporting continues after this chat ends, but does not send unsolicited chat messages or modify application code.
 
-Windows includes portable EXEs and the application's BAT/PS1 helpers. macOS includes an app bundle and a CLI in tar.gz to preserve modes and symlinks. Python is bundled. No Windows publisher signature or Apple notarization is provided; macOS signing is ad-hoc. No security settings are disabled. Real Tracker exports and full interactive desktop workflows are not tested.
-
-The packaging runtime hook puts default config/logs beside the executable or outside the macOS app bundle, with a per-user fallback if not writable. Application sources are not patched. Build metadata records source/workflow SHAs, Python/OS and dependencies. Dependencies other than PyInstaller are not locked; bit-for-bit reproducibility is not claimed.
-
-Release target: GitLab project 21, v1.36.1, three native archives, SHA256SUMS and BUILD-MANIFEST.json. This commit requests a fresh build; successful native builds and publication are not yet verified.
+Helpers are opt-in per-file metadata operations, not trusted signatures. Windows remains unsigned; macOS ad-hoc signing is not Developer ID/notarization. OS warnings can remain. No global security policy, certificate trust store or antivirus exclusion is modified. Real Tracker exports and full desktop workflows were not tested. Update README status only after checking actual GitLab Release and complete assets; configuration alone is not publication.

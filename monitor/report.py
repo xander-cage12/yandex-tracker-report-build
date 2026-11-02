@@ -11,7 +11,7 @@ REPO = "xander-cage12/yandex-tracker-report-build"
 GH = "https://api.github.com/repos/" + REPO
 GL = "https://gitlab.3-bs.synology.me/api/v4/projects/21"
 WORKFLOW = ".github/workflows/native-release.yml"
-VERSION = "1.36.1"
+VERSIONS = ("1.36.2", "1.36.1")
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -75,6 +75,14 @@ def managed_description(previous, block, begin, end):
     _, after = rest.split(end, 1)
     return before + block + after
 
+def diagnostic(target, run_id, attempt):
+    for version in VERSIONS:
+        url = GL + "/packages/generic/yandex-tracker-report/" + version + "-" + str(run_id) + "-" + str(attempt) + "/diagnostics-" + target + ".log"
+        raw = api(url, optional=True)
+        if raw is not None:
+            return url, raw
+    return None, None
+
 def sync(run_id):
     run = get_json(GH + "/actions/runs/" + str(int(run_id)))
     if (run.get("head_repository") or {}).get("full_name") != REPO or run.get("head_branch") != "main":
@@ -110,8 +118,7 @@ def sync(run_id):
         except Exception:
             lines.append("GitHub log archive could not be transferred; status reporting remains available.")
     for target in ("windows-x64", "macos-x64", "macos-arm64"):
-        log_url = GL + "/packages/generic/yandex-tracker-report/" + VERSION + "-" + str(run_id) + "-" + str(attempt) + "/diagnostics-" + target + ".log"
-        raw = api(log_url, optional=True)
+        log_url, raw = diagnostic(target, run_id, attempt)
         if raw is not None:
             tail = "\n".join(redact(raw.decode("utf-8", errors="replace")).splitlines()[-100:])[-12000:]
             lines += ["", "### Private build diagnostics: " + target,
