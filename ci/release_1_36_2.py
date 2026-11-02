@@ -8,7 +8,7 @@ import traceback
 import zipfile
 import release as base
 
-base.SOURCE = "e19b7355614e86e02d908aabefb33bc57bafc40f"
+base.SOURCE = "3d914a0e1a1dc9d85b032567bf44ce850c0abafb"
 base.VERSION, base.BUILD = "1.36.2", "55"
 base.PACKAGE = "/packages/generic/yandex-tracker-report/" + base.VERSION + "-" + base.RUN
 TAG = "v" + base.VERSION
