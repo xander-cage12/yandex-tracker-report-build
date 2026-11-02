@@ -1,0 +1,84 @@
+name: Native distributions to GitLab
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-release-v1.36.1
+  cancel-in-progress: false
+jobs:
+  preflight:
+    if: github.repository == 'xander-cage12/yandex-tracker-report-build' && github.ref == 'refs/heads/main' && github.actor == 'xander-cage12'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - run: python ci/release.py preflight
+        env:
+          GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
+          GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
+  build:
+    needs: preflight
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            target: windows-x64
+            arch: x64
+          - os: macos-15-intel
+            target: macos-x64
+            arch: x64
+          - os: macos-15
+            target: macos-arm64
+            arch: arm64
+    env:
+      TARGET: ${{ matrix.target }}
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.arch }}
+      - name: Fetch pinned private sources
+        run: python ci/release.py fetch
+        env:
+          GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
+      - name: Build and test privately
+        id: compile
+        run: python ci/release.py build
+      - name: Upload tested binary to GitLab
+        run: python ci/release.py upload
+        env:
+          GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
+      - name: Store failure diagnostics in GitLab only
+        if: failure() && steps.compile.outcome == 'failure'
+        run: python ci/release.py diagnostics
+        env:
+          GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
+  publish:
+    needs: [preflight, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Verify uploads and publish GitLab release
+        run: python ci/release.py release
+        env:
+          GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
+          GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
