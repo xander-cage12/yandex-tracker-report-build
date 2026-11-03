@@ -1,9 +1,27 @@
-# Yandex Tracker Report — build infrastructure
+# Yandex Tracker Report — инфраструктура сборки
 
-Public workflow repository only. Application source, native distributions, Releases and private diagnostics are maintained in GitLab project 21, m.smirnov/yandex-tracker-report. No application source or secrets are committed here.
+Публичный репозиторий содержит только рабочие процессы GitHub Actions и сборочные скрипты. Исходный код приложения, готовые дистрибутивы, выпуски и приватная диагностика находятся в GitLab: проект `m.smirnov/yandex-tracker-report`, ID 21. Исходники приложения и значения секретов здесь не публикуются.
 
-Configured next target: version 1.36.2, build 55, tag v1.36.2, source e19b7355614e86e02d908aabefb33bc57bafc40f. This is a build configuration, not a claim that the release is already published. The previous confirmed release is v1.36.1.
+## Опубликованный выпуск
 
-Native distributions to GitLab starts on controlled main pushes affecting its workflow, ci/** or release-request.json. It waits for successful GitLab source CI, builds Windows x64/macOS Intel/macOS Apple Silicon, tests CLI/GUI, verifies uploaded SHA-256 and publishes only a complete release. Report native builds to GitLab mirrors statuses and available private diagnostic tails into confidential GitLab issues.
+Версия **1.36.2, сборка 55**, тег `v1.36.2`, опубликована 2 ноября 2026 года. Исходный коммит: `3d914a0e1a1dc9d85b032567bf44ce850c0abafb`. Запуск нативной сборки GitHub Actions: `41480401159`, попытка 1. Предыдущий выпуск `v1.36.1` сохранён.
 
-Keep the GitHub/GitLab connectors and this repository for future releases; account authorization and secret expiration may require renewal. Secrets remain in Actions Secrets. See BUILD.md and the main project's BUILDING.md for setup and release procedures. No trusted signing certificates are included; per-file helpers require explicit user confirmation and do not disable global protection.
+Карточка выпуска GitLab содержит пять ссылок: архив Windows x64, архив macOS Intel, архив macOS Apple Silicon, `SHA256SUMS` и `BUILD-MANIFEST.json`. Наличие карточки и ссылок проверено; ссылки не заменяют проверку скачанного файла по контрольной сумме.
+
+## Сборка и публикация
+
+Рабочий процесс `Native distributions to GitLab` запускается при изменениях в `main`, затрагивающих его конфигурацию, `ci/**` или `release-request.json`, а также вручную. Он проверяет успешный GitLab CI для закреплённого исходного коммита, собирает три платформы, проверяет исходные тесты и запуск готовых CLI/GUI, затем проверяет SHA-256 загруженных файлов. Выпуск создаётся только после успеха всех платформ и проверок. Существующие выпуски не перезаписываются.
+
+Для Linux-проверок на mamont подключён подготовленный локальный образ `tracker-report-ci:bookworm-v1`; он не заменяет нативные Windows/macOS-окружения GitHub.
+
+## Отчёты и доступ
+
+Рабочий процесс `Report native builds to GitLab` переносит снимки статусов и доступную диагностику в конфиденциальные задачи GitLab. Обновления запускаются событиями всего рабочего процесса; завершение отдельной платформы не гарантирует немедленного обновления отчёта. Изменение `monitor-request.json` запускает обновление отчётов без пересборки приложения.
+
+Сохраняйте подключения GitHub и GitLab для следующих выпусков. Авторизация и токены могут требовать продления. Значения секретов хранятся только в GitHub Actions Secrets; не помещайте их в код, документацию, задачи или чат. Порядок работы описан в `BUILD.md` и `BUILDING.md` основного проекта.
+
+## Ограничения доверия
+
+Доверенной подписи издателя Windows и подписи Apple Developer ID с нотариальным заверением нет; предупреждения ОС могут сохраняться. Вспомогательные скрипты первого запуска требуют явного подтверждения, не запускаются автоматически и не отключают глобальную защиту. Контрольные суммы проверяют целостность относительно манифеста, но не удостоверяют издателя. Полная интерактивная работа и реальные выгрузки из Трекера в размещённом CI не проверялись.
+
+README и описания выпусков ведутся на русском языке; имена файлов, команды и технические идентификаторы сохраняются без перевода.
