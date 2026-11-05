@@ -6,7 +6,7 @@ import traceback
 import release_1_36_3 as previous
 
 base = previous.base
-base.SOURCE = "3e733e399495a811b5eb6db6db11816d71d36a31"
+base.SOURCE = "cc0267d4d5a61d3b8d04f9c147d4a04d10ebce55"
 base.VERSION, base.BUILD = "1.36.4", "57"
 base.PACKAGE = "/packages/generic/yandex-tracker-report/" + base.VERSION + "-" + base.RUN
 previous.legacy.TAG = "v" + base.VERSION
