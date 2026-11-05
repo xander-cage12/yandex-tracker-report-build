@@ -1,7 +1,7 @@
-name: Report native builds to GitLab
+name: Отчёт нативных сборок в GitLab
 on:
   workflow_run:
-    workflows: ['Native distributions to GitLab']
+    workflows: ['Native distributions to GitLab', 'Нативные сборки и выпуск в GitLab']
     types: [requested, in_progress, completed]
     branches: [main]
   push:
@@ -27,8 +27,8 @@ jobs:
         with:
           ref: main
           persist-credentials: false
-      - name: Mirror statuses and private diagnostics to GitLab
-        run: python3 monitor/report.py
+      - name: Передача статусов и приватной диагностики в GitLab
+        run: python3 monitor/report_current.py
         env:
           GH_TOKEN: ${{ github.token }}
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
