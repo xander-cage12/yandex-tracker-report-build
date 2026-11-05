@@ -1,4 +1,4 @@
-name: Native distributions to GitLab
+name: Нативные сборки и выпуск в GitLab
 on:
   workflow_dispatch:
   push:
@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: native-release-v1.36.3
+  group: native-release-v1.36.4
   cancel-in-progress: false
 jobs:
   preflight:
@@ -21,8 +21,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.12'
-      - run: python -m py_compile ci/release_1_36_3.py ci/strict_tests.py
-      - run: python ci/release_1_36_3.py preflight
+      - run: python -m py_compile ci/release_1_36_4.py ci/strict_tests_1_36_4.py
+      - run: python ci/release_1_36_4.py preflight
         env:
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
@@ -48,30 +48,30 @@ jobs:
         with:
           python-version: '3.12'
           architecture: ${{ matrix.arch }}
-      - name: Fetch pinned private sources
+      - name: Получение закреплённых приватных исходников
         id: sources
-        run: python ci/release_1_36_3.py fetch
+        run: python ci/release_1_36_4.py fetch
         env:
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
-      - name: Build and test privately on Windows
+      - name: Сборка и проверка Windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
           & powershell.exe -NoProfile -NonInteractive -Command "Get-Command Get-FileHash,Get-AuthenticodeSignature -ErrorAction Stop | Out-Null"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python ci/release_1_36_3.py build
+          python ci/release_1_36_4.py build
           exit $LASTEXITCODE
-      - name: Build and test privately on macOS
+      - name: Сборка и проверка macOS
         if: runner.os != 'Windows'
-        run: python ci/release_1_36_3.py build
-      - name: Upload tested binary to GitLab
-        run: python ci/release_1_36_3.py upload
+        run: python ci/release_1_36_4.py build
+      - name: Загрузка проверенных архивов в GitLab
+        run: python ci/release_1_36_4.py upload
         env:
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
-      - name: Store failure diagnostics in GitLab only
+      - name: Сохранение диагностики только в приватном GitLab
         if: failure() && steps.sources.outcome == 'success'
-        run: python ci/release_1_36_3.py diagnostics
+        run: python ci/release_1_36_4.py diagnostics
         env:
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
   publish:
@@ -85,8 +85,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.12'
-      - name: Verify uploads and publish GitLab release
-        run: python ci/release_1_36_3.py release
+      - name: Проверка архивов и публикация нового выпуска в GitLab
+        run: python ci/release_1_36_4.py release
         env:
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
