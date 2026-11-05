@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: native-release-v1.36.2
+  group: native-release-v1.36.3
   cancel-in-progress: false
 jobs:
   preflight:
@@ -21,7 +21,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.12'
-      - run: python ci/release_1_36_2.py preflight
+      - run: python -m py_compile ci/release_1_36_3.py ci/strict_tests.py
+      - run: python ci/release_1_36_3.py preflight
         env:
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
@@ -49,7 +50,7 @@ jobs:
           architecture: ${{ matrix.arch }}
       - name: Fetch pinned private sources
         id: sources
-        run: python ci/release_1_36_2.py fetch
+        run: python ci/release_1_36_3.py fetch
         env:
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
       - name: Build and test privately on Windows
@@ -59,18 +60,18 @@ jobs:
           Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
           & powershell.exe -NoProfile -NonInteractive -Command "Get-Command Get-FileHash,Get-AuthenticodeSignature -ErrorAction Stop | Out-Null"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python ci/release_1_36_2.py build
+          python ci/release_1_36_3.py build
           exit $LASTEXITCODE
       - name: Build and test privately on macOS
         if: runner.os != 'Windows'
-        run: python ci/release_1_36_2.py build
+        run: python ci/release_1_36_3.py build
       - name: Upload tested binary to GitLab
-        run: python ci/release_1_36_2.py upload
+        run: python ci/release_1_36_3.py upload
         env:
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
       - name: Store failure diagnostics in GitLab only
         if: failure() && steps.sources.outcome == 'success'
-        run: python ci/release_1_36_2.py diagnostics
+        run: python ci/release_1_36_3.py diagnostics
         env:
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
   publish:
@@ -85,7 +86,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Verify uploads and publish GitLab release
-        run: python ci/release_1_36_2.py release
+        run: python ci/release_1_36_3.py release
         env:
           GITLAB_READ_TOKEN: ${{ secrets.GITLAB_READ_TOKEN }}
           GITLAB_PUBLISH_TOKEN: ${{ secrets.GITLAB_PUBLISH_TOKEN }}
